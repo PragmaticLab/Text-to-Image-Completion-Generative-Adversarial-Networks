@@ -48,20 +48,24 @@ class DCGAN(object):
             h0 = tf.reshape(h0, [-1, s_h16, s_w16, self.gf_dim * 8])
             h0 = tf.nn.relu(tf.layers.batch_normalization(h0))
 
-            h1 = deconv2d(h0, [self.batch_size, s_h8, s_w8, self.gf_dim*4], name='g_h1')
+            h1 = tf.layers.conv2d_transpose(h0, self.gf_dim*4, 5, strides=2, padding='same', name='g_h1')
+            # h1 = deconv2d(h0, [self.batch_size, s_h8, s_w8, self.gf_dim*4], name='g_h1')
             h1 = tf.nn.relu(tf.layers.batch_normalization(h1))
 
-            h2 = deconv2d(h1, [self.batch_size, s_h4, s_w4, self.gf_dim*2], name='g_h2')
+            h2 = tf.layers.conv2d_transpose(h1, self.gf_dim*2, 5, strides=2, padding='same', name='g_h2')
+            # h2 = deconv2d(h1, [self.batch_size, s_h4, s_w4, self.gf_dim*2], name='g_h2')
             h2 = tf.nn.relu(tf.layers.batch_normalization(h2))
 
-            h3 = deconv2d(h2, [self.batch_size, s_h2, s_w2, self.gf_dim*1], name='g_h3')
+            h3 = tf.layers.conv2d_transpose(h2, self.gf_dim*1, 5, strides=2, padding='same', name='g_h3')
+            # h3 = deconv2d(h2, [self.batch_size, s_h2, s_w2, self.gf_dim*1], name='g_h3')
             h3 = tf.nn.relu(tf.layers.batch_normalization(h3))
 
-            h4 = deconv2d(h3, [self.batch_size, s_h, s_w, self.c_dim], name='g_h4')
+            h4 = tf.layers.conv2d_transpose(h3, self.c_dim, 5, strides=2, padding='same', name='g_h4')
+            # h4 = deconv2d(h3, [self.batch_size, s_h, s_w, self.c_dim], name='g_h4')
             h4 = tf.nn.tanh(h4)
 
             tf.summary.histogram('gen/out', h4)
-            tf.summary.image("gen", tf.reshape(h4, [-1, s_h, s_w, self.c_dim]), max_outputs=3)
+            tf.summary.image("gen", h4)
 
             return h4
 
@@ -74,15 +78,19 @@ class DCGAN(object):
         h4 - (64, 1)
         '''
         with tf.variable_scope("discriminator", reuse=reuse):
-            h0 = leaky_relu(conv2d(image, self.df_dim, name='d_h0_conv'))
+            h0 = tf.layers.conv2d(image, self.df_dim, 5, strides=2, padding='same', name='d_h0_conv')
+            h0 = leaky_relu(h0)
 
-            h1 = conv2d(h0, self.df_dim*2, name='d_h1_conv')
+            h1 = tf.layers.conv2d(h0, self.df_dim*2, 5, strides=2, padding='same', name='d_h1_conv')
+            # h1 = conv2d(h0, self.df_dim*2, name='d_h1_conv')
             h1 = leaky_relu(tf.layers.batch_normalization(h1))
             
-            h2 = conv2d(h1, self.df_dim*4, name='d_h2_conv')
+            h2 = tf.layers.conv2d(h1, self.df_dim*4, 5, strides=2, padding='same', name='d_h2_conv')
+            # h2 = conv2d(h1, self.df_dim*4, name='d_h2_conv')
             h2 = leaky_relu(tf.layers.batch_normalization(h2))
             
-            h3 = conv2d(h2, self.df_dim*8, name='d_h3_conv')
+            h3 = tf.layers.conv2d(h2, self.df_dim*8, 5, strides=2, padding='same', name='d_h3_conv')
+            # h3 = conv2d(h2, self.df_dim*8, name='d_h3_conv')
             h3 = leaky_relu(tf.layers.batch_normalization(h3))
             
             h4 = linear(tf.reshape(h3, [self.batch_size, -1]), 1, name='d_h4_lin')

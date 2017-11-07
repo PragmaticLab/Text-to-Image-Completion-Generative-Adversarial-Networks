@@ -8,15 +8,15 @@ from model import DCGAN
 
 ### Defining stuff ### 
 
-BATCH_SIZE = 128
-TOTAL_BATCHES = 10000
-INPUT_HEIGHT = INPUT_WIDTH = 32
-OUTPUT_HEIGHT = OUTPUT_WIDTH = 32
+BATCH_SIZE = 64
+TOTAL_BATCHES = 1000000
+INPUT_HEIGHT = INPUT_WIDTH = 64
+OUTPUT_HEIGHT = OUTPUT_WIDTH = 64
 Z_DIM = 100
-GF_DIM = 32
-DF_DIM = 32
+GF_DIM = 128
+DF_DIM = 64
 C_DIM = 3
-LR = 0.0001
+LR = 0.0005
 LOGDIR = os.path.dirname(os.path.realpath(__file__)) + "/logs/"
 
 ### Loading ### 
@@ -55,6 +55,10 @@ for batch in batches:
 
     summary_writer.add_summary(summary_str, i)
     if i % 100 == 0 or i == 1:
+        a = sess.run([dcgan.G], feed_dict={dcgan.inputs: batch, dcgan.z: z})[0]
+        print a[0][0][0]
+        print a[32][0][0]
+
         print('Step %i: Generator Loss: %f, Discriminator Loss: %f' % (i, gl, dl))
         saver.save(sess, checkpoint_file, global_step=global_step)
 
