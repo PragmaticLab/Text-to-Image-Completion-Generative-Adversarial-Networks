@@ -57,6 +57,9 @@ net_fake_image, _ = generator_txt2img(t_z,
                 #+ tf.random_normal(shape=net_rnn.outputs.get_shape(), mean=0, stddev=0.02), # NOISE ON RNN
 net_d, disc_fake_image_logits = discriminator_txt2img(
                 net_fake_image.outputs, net_rnn.outputs, is_train=False, reuse=False)
+_, disc_real_image_logits = discriminator_txt2img(
+                    t_real_image, net_rnn.outputs, is_train=False, reuse=True)
+d_loss1 = tl.cost.sigmoid_cross_entropy(disc_real_image_logits, tf.ones_like(disc_real_image_logits), name='d1')
 net_g, _ = generator_txt2img(t_z,
                 rnn_embed(t_real_caption, is_train=False, reuse=True).outputs,
                 is_train=False, reuse=True, batch_size=batch_size)
@@ -93,10 +96,12 @@ load_and_assign_npz(sess=sess, name=net_d_name, model=net_d)
 #                                         t_z : sample_seed})
 
 
-lr_d = 0.005
-lr_rnn = 0.01
+lr_d = 0.0001
+lr_rnn = 0.0005
 beta1 = 0.5
-epoch = 3000
+epoch = 10000
+l2_gamma = 0.1
+
 
 idexs = get_random_int(min=0, max=n_captions_train-1, number=batch_size)
 b_real_caption = captions_ids_train[idexs]
@@ -104,7 +109,7 @@ b_real_caption = tl.prepro.pad_sequences(b_real_caption, padding='post')
 b_real_images = images_train[np.floor(np.asarray(idexs).astype('float')/n_captions_per_image).astype('int')]
 
 ## getting the real word embeddings that we learned
-caption_embedding = tf.get_variable(name='caption_embedding', shape=net_rnn.outputs.get_shape().as_list(), 
+caption_embedding = tf.get_variable(name='caption_embedding3', shape=net_rnn.outputs.get_shape().as_list(), 
                     initializer=tf.random_normal_initializer(stddev=0.02))
 
 alpha = 0.2 # margin alpha
@@ -114,7 +119,7 @@ rnn_caption_loss = tf.reduce_mean(tf.maximum(0., alpha - cosine_similarity(x, ca
 _, disc_caption_logits = discriminator_txt2img(
                     t_real_image, caption_embedding, is_train=False, reuse=True)
 d_caption_loss = tl.cost.sigmoid_cross_entropy(disc_caption_logits, tf.ones_like(disc_caption_logits), name='d_caption') + \
-                    tf.nn.l2_loss(caption_embedding)
+                    l2_gamma * tf.nn.l2_loss(caption_embedding)
 
 rnn_caption_optim = tf.train.AdamOptimizer(lr_rnn, beta1=beta1).minimize(rnn_caption_loss, var_list=[caption_embedding])
 d_caption_optim = tf.train.AdamOptimizer(lr_d, beta1=beta1).minimize(d_caption_loss, var_list=[caption_embedding])
@@ -122,8 +127,17 @@ d_caption_optim = tf.train.AdamOptimizer(lr_d, beta1=beta1).minimize(d_caption_l
 eval_cosine_sim = tf.reduce_mean(cosine_similarity(caption_embedding, net_rnn.outputs))
 eval_mse = tf.reduce_mean(tf.squared_difference(caption_embedding, net_rnn.outputs))
 
-
 tl.layers.initialize_global_variables(sess)
+
+actual_rnn_embedding = sess.run(net_rnn.outputs, feed_dict={t_real_caption : b_real_caption})
+d_loss_real = sess.run(d_loss1, 
+                feed_dict={
+                    t_real_image : b_real_images,
+                    t_real_caption: b_real_caption})
+print "d_loss_real is %.8f" % (d_loss_real)
+
+curr_best_errD, curr_best_errRNN = 5000, 5000
+curr_best_embedding = None
 
 for i in range(epoch):
     ## get wrong captions
@@ -138,14 +152,16 @@ for i in range(epoch):
                     t_real_image : b_real_images,
                     t_wrong_image: b_wrong_images,
                     t_wrong_caption : b_wrong_caption})
+    if curr_best_errD < errD and curr_best_errRNN < errRNN:
+        curr_best_embedding = sess.run(caption_embedding)
+        curr_best_errD = errD
+        curr_best_errRNN = curr_best_errRNN
     if i % 100 == 0:
         cosine_sim_to_real, mse_to_real = sess.run([eval_cosine_sim, eval_mse], feed_dict={t_real_caption : b_real_caption})
-        print("Epoch: [%2d/%2d]: d_caption_loss: %.8f, rnn_caption_loss: %.8f, cosine_sim_to_real: %.8f" % 
-            (i, epoch, errD, errRNN, cosine_sim_to_real))
+        print("Epoch: [%2d/%2d]: d_caption_loss: %.8f, rnn_caption_loss: %.8f, mse_to_real: %.8f, cosine_sim_to_real: %.8f" % 
+            (i, epoch, errD, errRNN, mse_to_real, cosine_sim_to_real))
 
-
-
-
+print curr_best_errD, curr_best_errRNN
 
 # ####### generate image instead
 
