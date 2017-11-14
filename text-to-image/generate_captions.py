@@ -41,11 +41,11 @@ t_real_caption = tf.placeholder(dtype=tf.int64, shape=[batch_size, None], name='
 t_wrong_caption = tf.placeholder(dtype=tf.int64, shape=[batch_size, None], name='wrong_caption_input')
 t_z = tf.placeholder(tf.float32, [batch_size, z_dim], name='z_noise')
 
-net_cnn = cnn_encoder(t_real_image, is_train=True, reuse=False)
+net_cnn = cnn_encoder(t_real_image, is_train=False, reuse=False)
 x = net_cnn.outputs
-v = rnn_embed(t_real_caption, is_train=True, reuse=False).outputs
-x_w = cnn_encoder(t_wrong_image, is_train=True, reuse=True).outputs
-v_w = rnn_embed(t_wrong_caption, is_train=True, reuse=True).outputs
+v = rnn_embed(t_real_caption, is_train=False, reuse=False).outputs
+x_w = cnn_encoder(t_wrong_image, is_train=False, reuse=True).outputs
+v_w = rnn_embed(t_wrong_caption, is_train=False, reuse=True).outputs
 
 generator_txt2img = model.generator_txt2img_resnet
 discriminator_txt2img = model.discriminator_txt2img_resnet
@@ -53,10 +53,10 @@ discriminator_txt2img = model.discriminator_txt2img_resnet
 net_rnn = rnn_embed(t_real_caption, is_train=False, reuse=True)
 net_fake_image, _ = generator_txt2img(t_z,
                 net_rnn.outputs,
-                is_train=True, reuse=False, batch_size=batch_size)
+                is_train=False, reuse=False, batch_size=batch_size)
                 #+ tf.random_normal(shape=net_rnn.outputs.get_shape(), mean=0, stddev=0.02), # NOISE ON RNN
 net_d, disc_fake_image_logits = discriminator_txt2img(
-                net_fake_image.outputs, net_rnn.outputs, is_train=True, reuse=False)
+                net_fake_image.outputs, net_rnn.outputs, is_train=False, reuse=False)
 net_g, _ = generator_txt2img(t_z,
                 rnn_embed(t_real_caption, is_train=False, reuse=True).outputs,
                 is_train=False, reuse=True, batch_size=batch_size)
@@ -93,12 +93,10 @@ load_and_assign_npz(sess=sess, name=net_d_name, model=net_d)
 #                                         t_z : sample_seed})
 
 
-
-## https://www.reddit.com/r/MachineLearning/comments/7cl7ud/generating_the_conditional_vector_from_a_trained/
-
-lr = 0.01
+lr_d = 0.005
+lr_rnn = 0.01
 beta1 = 0.5
-epoch = 1000
+epoch = 3000
 
 idexs = get_random_int(min=0, max=n_captions_train-1, number=batch_size)
 b_real_caption = captions_ids_train[idexs]
@@ -106,28 +104,50 @@ b_real_caption = tl.prepro.pad_sequences(b_real_caption, padding='post')
 b_real_images = images_train[np.floor(np.asarray(idexs).astype('float')/n_captions_per_image).astype('int')]
 
 ## getting the real word embeddings that we learned
-actual_rnn_embedding = sess.run(net_rnn.outputs, feed_dict={t_real_caption : b_real_caption})
 caption_embedding = tf.get_variable(name='caption_embedding', shape=net_rnn.outputs.get_shape().as_list(), 
                     initializer=tf.random_normal_initializer(stddev=0.02))
+
+alpha = 0.2 # margin alpha
+rnn_caption_loss = tf.reduce_mean(tf.maximum(0., alpha - cosine_similarity(x, caption_embedding) + cosine_similarity(x, v_w))) + \
+            tf.reduce_mean(tf.maximum(0., alpha - cosine_similarity(x, caption_embedding) + cosine_similarity(x_w, caption_embedding)))
+
 _, disc_caption_logits = discriminator_txt2img(
                     t_real_image, caption_embedding, is_train=False, reuse=True)
+d_caption_loss = tl.cost.sigmoid_cross_entropy(disc_caption_logits, tf.ones_like(disc_caption_logits), name='d_caption') + \
+                    tf.nn.l2_loss(caption_embedding)
 
-d_caption_loss = tl.cost.sigmoid_cross_entropy(disc_caption_logits, tf.ones_like(disc_caption_logits), name='d_caption')
-d_optim = tf.train.AdamOptimizer(lr, beta1=beta1).minimize(d_caption_loss, var_list=[caption_embedding])
+rnn_caption_optim = tf.train.AdamOptimizer(lr_rnn, beta1=beta1).minimize(rnn_caption_loss, var_list=[caption_embedding])
+d_caption_optim = tf.train.AdamOptimizer(lr_d, beta1=beta1).minimize(d_caption_loss, var_list=[caption_embedding])
+
+eval_cosine_sim = tf.reduce_mean(cosine_similarity(caption_embedding, net_rnn.outputs))
+eval_mse = tf.reduce_mean(tf.squared_difference(caption_embedding, net_rnn.outputs))
+
 
 tl.layers.initialize_global_variables(sess)
 
-
 for i in range(epoch):
-    errD, _ = sess.run([d_caption_loss, d_optim], feed_dict={
-                    t_real_image : b_real_images})
+    ## get wrong captions
+    idexs = get_random_int(min=0, max=n_captions_train-1, number=batch_size)
+    b_wrong_caption = captions_ids_train[idexs]
+    b_wrong_caption = tl.prepro.pad_sequences(b_wrong_caption, padding='post')
+    ## get wrong image
+    idexs2 = get_random_int(min=0, max=n_images_train-1, number=batch_size)
+    b_wrong_images = images_train[idexs2]
+    errD, errRNN, _, _ = sess.run([d_caption_loss, rnn_caption_loss, d_caption_optim, rnn_caption_optim], 
+                feed_dict={
+                    t_real_image : b_real_images,
+                    t_wrong_image: b_wrong_images,
+                    t_wrong_caption : b_wrong_caption})
     if i % 100 == 0:
-        # generated_caption_embedding = sess.run(caption_embedding)
-        # mse = ((generated_caption_embedding - actual_rnn_embedding) ** 2).mean()
-        print("Epoch: [%2d/%2d]: d_caption_loss: %.8f, mse from actual: %.8f" % 
-            (i, epoch, errD, mse))
+        cosine_sim_to_real, mse_to_real = sess.run([eval_cosine_sim, eval_mse], feed_dict={t_real_caption : b_real_caption})
+        print("Epoch: [%2d/%2d]: d_caption_loss: %.8f, rnn_caption_loss: %.8f, cosine_sim_to_real: %.8f" % 
+            (i, epoch, errD, errRNN, cosine_sim_to_real))
 
-####### generate image instead
+
+
+
+
+# ####### generate image instead
 
 # lr = 0.01
 # beta1 = 0.5
@@ -161,5 +181,3 @@ for i in range(epoch):
 
 # save_images(b_real_images, [ni, ni], 'samples/jason_original.png')
 # save_images(generated_new_img, [ni, ni], 'samples/jason_generated.png')
-
-
