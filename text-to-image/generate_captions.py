@@ -152,10 +152,10 @@ for i in range(epoch):
                     t_real_image : b_real_images,
                     t_wrong_image: b_wrong_images,
                     t_wrong_caption : b_wrong_caption})
-    if curr_best_errD < errD and curr_best_errRNN < errRNN:
+    if curr_best_errD > errD and curr_best_errRNN > errRNN:
         curr_best_embedding = sess.run(caption_embedding)
         curr_best_errD = errD
-        curr_best_errRNN = curr_best_errRNN
+        curr_best_errRNN = errRNN
     if i % 100 == 0:
         cosine_sim_to_real, mse_to_real = sess.run([eval_cosine_sim, eval_mse], feed_dict={t_real_caption : b_real_caption})
         print("Epoch: [%2d/%2d]: d_caption_loss: %.8f, rnn_caption_loss: %.8f, mse_to_real: %.8f, cosine_sim_to_real: %.8f" % 

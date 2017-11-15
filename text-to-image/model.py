@@ -822,6 +822,54 @@ def rnn_embed(input_seqs, is_train=True, reuse=False, return_embed=False):
                      name = 'rnn/dynamic')
         return network
 
+def MakeFancyRNNCell(H, keep_prob, num_layers=1):
+    cells = []
+    for _ in xrange(num_layers):
+      cell = tf.contrib.rnn.BasicLSTMCell(H, forget_bias=0.0)
+      cell = tf.contrib.rnn.DropoutWrapper(
+          cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob)
+      cells.append(cell)
+    return tf.contrib.rnn.MultiRNNCell(cells)
+
+
+def matmul3d(X, W):
+    Xr = tf.reshape(X, [-1, tf.shape(X)[2]])
+    XWr = tf.matmul(Xr, W)
+    newshape = [tf.shape(X)[0], tf.shape(X)[1], tf.shape(W)[1]]
+    return tf.reshape(XWr, newshape)
+
+def rnn_decoder(initial_state, input_seqs, is_train=True, reuse=False):
+    w_init = tf.random_normal_initializer(stddev=0.02)
+    if tf.__version__ <= '0.12.1':
+        LSTMCell = tf.nn.rnn_cell.LSTMCell
+    else:
+        LSTMCell = tf.contrib.rnn.BasicLSTMCell
+    with tf.variable_scope("rnndecodetxt", reuse=reuse):
+        embedding_map = tf.get_variable(name="rnn/wordembed_decoder", 
+            shape=[vocab_size, word_embedding_size], initializer=w_init)
+        seq_embedding = tf.nn.embedding_lookup(embedding_map, input_seqs)
+        lstm_cell = MakeFancyRNNCell(rnn_hidden_size, (keep_prob if is_train else 1.0))
+        zero_state = lstm_cell.zero_state(batch_size=input_seqs.shape[0], dtype=tf.float32)
+        initial_state = tf.layers.dense(initial_state, word_embedding_size, 
+            kernel_initializer=w_init, name="rnn/outputs_map")
+        _, initial_state = lstm_cell(initial_state, zero_state)
+        lstm_outputs, final_state = tf.nn.dynamic_rnn(cell=lstm_cell,
+            inputs=seq_embedding,
+            sequence_length=tl.layers.retrieve_seq_length_op2(input_seqs),
+            initial_state=initial_state,
+            dtype=tf.float32,
+            scope='rnn/decoder')
+        W_out_ = tf.get_variable(name="rnn/decoder_out_W", shape=[rnn_hidden_size, vocab_size], 
+                initializer=w_init)
+        b_out_ = tf.get_variable(name="rnn/decoder_out_b", shape=[vocab_size], initializer=tf.zeros_initializer())
+        logits_ = matmul3d(lstm_outputs, W_out_) + b_out_
+        return logits_, final_state
+
+def sampleRNN(logits):
+    return tf.reshape(tf.multinomial(tf.reshape(logits, [-1, vocab_size]), 1, name="pred_random"),
+        [1, 1, 1]
+    )
+
 def cnn_encoder(inputs, is_train=True, reuse=False, name='cnnftxt', return_h3=False):
     """ 64x64 --> t_dim, for text-image mapping """
     w_init = tf.random_normal_initializer(stddev=0.02)
