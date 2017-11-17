@@ -831,7 +831,6 @@ def MakeFancyRNNCell(H, keep_prob, num_layers=1):
       cells.append(cell)
     return tf.contrib.rnn.MultiRNNCell(cells)
 
-
 def matmul3d(X, W):
     Xr = tf.reshape(X, [-1, tf.shape(X)[2]])
     XWr = tf.matmul(Xr, W)
@@ -849,10 +848,12 @@ def rnn_decoder(initial_state, input_seqs, is_train=True, reuse=False):
             shape=[vocab_size, word_embedding_size], initializer=w_init)
         seq_embedding = tf.nn.embedding_lookup(embedding_map, input_seqs)
         lstm_cell = MakeFancyRNNCell(rnn_hidden_size, (keep_prob if is_train else 1.0))
+
         zero_state = lstm_cell.zero_state(batch_size=input_seqs.shape[0], dtype=tf.float32)
         initial_state = tf.layers.dense(initial_state, word_embedding_size, 
             kernel_initializer=w_init, name="rnn/outputs_map")
         _, initial_state = lstm_cell(initial_state, zero_state)
+
         lstm_outputs, final_state = tf.nn.dynamic_rnn(cell=lstm_cell,
             inputs=seq_embedding,
             sequence_length=tl.layers.retrieve_seq_length_op2(input_seqs),
