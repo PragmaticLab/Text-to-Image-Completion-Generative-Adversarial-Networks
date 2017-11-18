@@ -67,6 +67,7 @@ t_caption2 = tf.placeholder(dtype=tf.int64, shape=[batch_size, None], name='capt
 caption1 = rnn_embed(t_caption1, is_train=False, reuse=True).outputs
 caption2 = rnn_embed(t_caption2, is_train=False, reuse=True).outputs
 merged_caption = (caption1 + caption2) / 2
+# merged_caption = caption1 + caption2 * 0
 
 merged_image, _ = generator_txt2img(t_z, merged_caption,
                 is_train=False, reuse=True, batch_size=batch_size)
@@ -79,8 +80,8 @@ load_and_assign_npz(sess=sess, name=net_g_name, model=net_g)
 sample_size = batch_size
 sample_seed = np.random.normal(loc=0.0, scale=1.0, size=(sample_size, z_dim)).astype(np.float32)
 
-sample1 = ["this flower has petals that are blue and white."] * sample_size
-sample2 = ["these white flowers have petals that start off white in color and end in a white towards the tips."] * sample_size
+sample1 = ["this flower is red."] * sample_size
+sample2 = ["this flower is blue."] * sample_size
 
 def get_pad_seq(samples):
     for i, sentence in enumerate(samples):
