@@ -67,10 +67,10 @@ def discriminator(image, text, options, reuse=False, name="discriminator"):
         net_txt = ExpandDimsLayer(net_txt, 1, name='d_txt/expanddim2')
         net_txt = TileLayer(net_txt, [1, 32, 32, 1], name='d_txt/tile')
         net_h3_concat = ConcatLayer([net_h3, net_txt], concat_dim=3, name='d_h3_concat')
-        # 243 (ndf*8 + 128 or 256) x 4 x 4
         h4 = conv2d(net_h3_concat.outputs, 1, s=1, name='d_h3_pred')
-        # h4 is (32 x 32 x 1)
+
         return h4
+        # return h3
 
 
 def generator_resnet(image, text, options, reuse=False, name="generator"):
@@ -95,43 +95,44 @@ def generator_resnet(image, text, options, reuse=False, name="generator"):
         # R128, R128, R128, R128, R128, R128, u64, u32, c7s1-3
         c0 = tf.pad(image, [[0, 0], [3, 3], [3, 3], [0, 0]], "REFLECT")
         c1 = tf.nn.relu(instance_norm(conv2d(c0, options.gf_dim, 7, 1, padding='VALID', name='g_e1_c'), 'g_e1_bn'))
-        c2 = tf.nn.relu(instance_norm(conv2d(c1, options.gf_dim, 3, 2, name='g_e2_c'), 'g_e2_bn'))
-        c3 = tf.nn.relu(instance_norm(conv2d(c2, options.gf_dim, 3, 2, name='g_e3_c'), 'g_e3_bn'))
-        c4 = tf.nn.relu(instance_norm(conv2d(c3, options.gf_dim, 3, 2, name='g_e4_c'), 'g_e4_bn'))
-        # c5 = tf.nn.relu(instance_norm(conv2d(c4, options.gf_dim, 3, 2, name='g_e5_c'), 'g_e5_bn'))
-        # define G network with 9 resnet blocks
-        r1 = residule_block(c4, options.gf_dim, name='g_r1')
-        r2 = residule_block(r1, options.gf_dim, name='g_r2')
-        r3 = residule_block(r2, options.gf_dim, name='g_r3')
-        r4 = residule_block(r3, options.gf_dim, name='g_r4')
-        r5 = residule_block(r4, options.gf_dim, name='g_r5')
-        r6 = residule_block(r5, options.gf_dim, name='g_r6')
-        r7 = residule_block(r6, options.gf_dim, name='g_r7')
-        r8 = residule_block(r7, options.gf_dim, name='g_r8')
-        r9 = residule_block(r8, options.gf_dim, name='g_r9')  # (?, 16, 16, 64)
+        c2 = tf.nn.relu(instance_norm(conv2d(c1, options.gf_dim*2, 3, 2, name='g_e2_c'), 'g_e2_bn'))
+        c3 = tf.nn.relu(instance_norm(conv2d(c2, options.gf_dim*4, 3, 2, name='g_e3_c'), 'g_e3_bn'))
+        c4 = tf.nn.relu(instance_norm(conv2d(c3, options.gf_dim*4, 3, 2, name='g_e4_c'), 'g_e4_bn')) # 32x32x256
+        c5 = tf.nn.relu(instance_norm(conv2d(c4, options.gf_dim*4, 3, 2, name='g_e5_c'), 'g_e5_bn')) # 16x16x256
 
-        middle_size = 32 * 32 * 64
         w_init = tf.random_normal_initializer(stddev=0.02)
-
-        r9 = tf.reshape(r9, (-1, middle_size))
-        r9 = InputLayer(r9, name='g_res_input')
+        gamma_init=tf.random_normal_initializer(1., 0.02)
+        net_c5 = InputLayer(c5, name='g_input_img')
         net_txt = InputLayer(text, name='g_input_txt')
         net_txt = DenseLayer(net_txt, n_units=t_dim,
-            act=lambda x: tl.act.lrelu(x, 0.2), W_init=w_init, name='g_reduce_text/dense')
-        r9 = DenseLayer(r9, n_units=256, W_init=w_init, name='g_reduce_res/dense')
-        net_in = ConcatLayer([r9, net_txt], concat_dim=1, name='g_concat_z_txt')
-        r9 = DenseLayer(net_in, n_units=middle_size, W_init=w_init, name='g_reduce_text/dense2')
-        r9 = instance_norm(tf.reshape(r9.outputs, (-1, 32, 32, 64)), 'g_r9_added_text')
+               act=lambda x: tl.act.lrelu(x, 0.2),
+               W_init=w_init, name='g_reduce_txt/dense')
+        net_txt = ExpandDimsLayer(net_txt, 1, name='g_txt/expanddim1')        
+        net_txt = ExpandDimsLayer(net_txt, 1, name='g_txt/expanddim2')
+        net_txt = TileLayer(net_txt, [1, 16, 16, 1], name='g_txt/tile')
+        net_c5_concat = ConcatLayer([net_c5, net_txt], concat_dim=3, name='g_h3_concat')
+        c6 = net_c5_concat.outputs
 
-        # d0 = deconv2d(r9, options.gf_dim, 3, 2, name='g_d0_dc')
-        # d0 = tf.nn.relu(instance_norm(d0, 'g_d0_bn'))
-        d1 = deconv2d(r9, options.gf_dim, 3, 2, name='g_d1_dc')
+        # define G network with 9 resnet blocks
+        r1 = residule_block(c6, options.gf_dim*4+t_dim, name='g_r1')
+        r2 = residule_block(r1, options.gf_dim*4+t_dim, name='g_r2')
+        r3 = residule_block(r2, options.gf_dim*4+t_dim, name='g_r3')
+        r4 = residule_block(r3, options.gf_dim*4+t_dim, name='g_r4')
+        r5 = residule_block(r4, options.gf_dim*4+t_dim, name='g_r5')
+        r6 = residule_block(r5, options.gf_dim*4+t_dim, name='g_r6')
+        r7 = residule_block(r6, options.gf_dim*4+t_dim, name='g_r7')
+        r8 = residule_block(r7, options.gf_dim*4+t_dim, name='g_r8')
+        r9 = residule_block(r8, options.gf_dim*4+t_dim, name='g_r9')
+
+        d1 = deconv2d(r9, options.gf_dim*4, 3, 2, name='g_d1_dc')
         d1 = tf.nn.relu(instance_norm(d1, 'g_d1_bn'))
-        d2 = deconv2d(d1, options.gf_dim, 3, 2, name='g_d2_dc')
+        d2 = deconv2d(d1, options.gf_dim*2, 3, 2, name='g_d2_dc')
         d2 = tf.nn.relu(instance_norm(d2, 'g_d2_bn'))
-        d3 = deconv2d(d2, options.gf_dim, 3, 2, name='g_d3_dc')
+        d3 = deconv2d(d2, options.gf_dim*2, 3, 2, name='g_d3_dc')
         d3 = tf.nn.relu(instance_norm(d3, 'g_d3_bn'))
-        d4 = tf.pad(d3, [[0, 0], [3, 3], [3, 3], [0, 0]], "REFLECT")
+        d4 = deconv2d(d3, options.gf_dim*1, 3, 2, name='g_d4_dc')
+        d4 = tf.nn.relu(instance_norm(d4, 'g_d4_bn'))
+        d4 = tf.pad(d4, [[0, 0], [3, 3], [3, 3], [0, 0]], "REFLECT")
         pred = tf.nn.tanh(conv2d(d4, options.output_c_dim, 7, 1, padding='VALID', name='g_pred_c'))
 
         return pred

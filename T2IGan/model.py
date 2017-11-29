@@ -48,10 +48,13 @@ class cyclegan(object):
     def _build_model(self):
         self.real_data = tf.placeholder(tf.float32,
                                         [None, self.image_size, self.image_size,
-                                         self.input_c_dim + self.output_c_dim],
+                                         self.input_c_dim * 4],
                                         name='real_A_and_B_images')
         self.real_A = self.real_data[:, :, :, :self.input_c_dim]
-        self.real_B = self.real_data[:, :, :, self.input_c_dim:self.input_c_dim + self.output_c_dim]
+        self.real_B = self.real_data[:, :, :, self.input_c_dim:self.input_c_dim*2]
+        self.wrong_A = self.real_data[:, :, :, self.input_c_dim*2:self.input_c_dim*3]
+        self.wrong_B = self.real_data[:, :, :, self.input_c_dim*3:self.input_c_dim*4]
+
 
         self.captionA = tf.placeholder(dtype=tf.int64, shape=[None, None], name='captionA')
         self.captionB = tf.placeholder(dtype=tf.int64, shape=[None, None], name='captionB')
@@ -90,6 +93,7 @@ class cyclegan(object):
         self.fake_B_sample = tf.placeholder(tf.float32,
                                             [None, self.image_size, self.image_size,
                                              self.output_c_dim], name='fake_B_sample')
+
         self.DA_real = self.discriminator(self.real_A, self.captionANet.outputs, self.options, reuse=True, name="discriminatorA")
         self.DB_real = self.discriminator(self.real_B, self.captionBNet.outputs, self.options, reuse=True, name="discriminatorB")
         self.DB_fake_sample = self.discriminator(self.fake_B_sample, self.captionANet.outputs, 
@@ -97,39 +101,63 @@ class cyclegan(object):
         self.DA_fake_sample = self.discriminator(self.fake_A_sample, self.captionBNet.outputs, 
             self.options, reuse=True, name="discriminatorA")
 
+        self.DA_wrong_caption = self.discriminator(self.real_A, self.captionWrongNet.outputs, self.options, reuse=True, name="discriminatorA")
+        self.DB_wrong_caption = self.discriminator(self.real_B, self.captionWrongNet.outputs, self.options, reuse=True, name="discriminatorB")
+        self.DA_wrong_image = self.discriminator(self.wrong_A, self.captionANet.outputs, self.options, reuse=True, name="discriminatorA")
+        self.DB_wrong_image = self.discriminator(self.wrong_B, self.captionBNet.outputs, self.options, reuse=True, name="discriminatorB")
+
         self.db_loss_real = self.criterionGAN(self.DB_real, tf.ones_like(self.DB_real))
         self.db_loss_fake = self.criterionGAN(self.DB_fake_sample, tf.zeros_like(self.DB_fake_sample))
-        self.db_loss = (self.db_loss_real + self.db_loss_fake) / 2
+        self.db_loss_wrong_caption = self.criterionGAN(self.DB_wrong_caption, tf.zeros_like(self.DB_wrong_caption))
+        self.db_loss_wrong_image = self.criterionGAN(self.DB_wrong_image, tf.zeros_like(self.DB_wrong_image))
+        self.db_loss = self.db_loss_real + (self.db_loss_fake + self.db_loss_wrong_caption + self.db_loss_wrong_image) / 3
+        # self.db_loss = (self.db_loss_real + self.db_loss_fake) / 2
+
         self.da_loss_real = self.criterionGAN(self.DA_real, tf.ones_like(self.DA_real))
         self.da_loss_fake = self.criterionGAN(self.DA_fake_sample, tf.zeros_like(self.DA_fake_sample))
-        self.da_loss = (self.da_loss_real + self.da_loss_fake) / 2
+        self.da_loss_wrong_caption = self.criterionGAN(self.DA_wrong_caption, tf.zeros_like(self.DA_wrong_caption))
+        self.da_loss_wrong_image = self.criterionGAN(self.DA_wrong_image, tf.zeros_like(self.DA_wrong_image))
+        self.da_loss = self.da_loss_real + (self.da_loss_fake + self.da_loss_wrong_caption + self.da_loss_wrong_image) / 3
+        # self.da_loss = (self.da_loss_real + self.da_loss_fake) / 2
+
         self.d_loss = self.da_loss + self.db_loss
 
         self.g_loss_a2b_sum = tf.summary.scalar("g_loss_a2b", self.g_loss_a2b)
         self.g_loss_b2a_sum = tf.summary.scalar("g_loss_b2a", self.g_loss_b2a)
         self.g_loss_sum = tf.summary.scalar("g_loss", self.g_loss)
         self.g_sum = tf.summary.merge([self.g_loss_a2b_sum, self.g_loss_b2a_sum, self.g_loss_sum])
+
         self.db_loss_sum = tf.summary.scalar("db_loss", self.db_loss)
         self.da_loss_sum = tf.summary.scalar("da_loss", self.da_loss)
         self.d_loss_sum = tf.summary.scalar("d_loss", self.d_loss)
         self.db_loss_real_sum = tf.summary.scalar("db_loss_real", self.db_loss_real)
         self.db_loss_fake_sum = tf.summary.scalar("db_loss_fake", self.db_loss_fake)
+        self.db_loss_wrong_caption_sum = tf.summary.scalar("db_loss_wrong_caption", self.db_loss_wrong_caption)
+        self.db_loss_wrong_image_sum = tf.summary.scalar("db_loss_wrong_image", self.db_loss_wrong_image)
         self.da_loss_real_sum = tf.summary.scalar("da_loss_real", self.da_loss_real)
         self.da_loss_fake_sum = tf.summary.scalar("da_loss_fake", self.da_loss_fake)
+        self.da_loss_wrong_caption_sum = tf.summary.scalar("da_loss_wrong_caption", self.da_loss_wrong_caption)
+        self.da_loss_wrong_image_sum = tf.summary.scalar("da_loss_wrong_image", self.da_loss_wrong_image)
         self.d_sum = tf.summary.merge(
             [self.da_loss_sum, self.da_loss_real_sum, self.da_loss_fake_sum,
              self.db_loss_sum, self.db_loss_real_sum, self.db_loss_fake_sum,
+             self.db_loss_wrong_caption_sum, self.db_loss_wrong_image_sum,
+             self.da_loss_wrong_caption_sum, self.da_loss_wrong_image_sum,
              self.d_loss_sum]
         )
 
-        # self.test_A = tf.placeholder(tf.float32,
-        #                              [None, self.image_size, self.image_size,
-        #                               self.input_c_dim], name='test_A')
-        # self.test_B = tf.placeholder(tf.float32,
-        #                              [None, self.image_size, self.image_size,
-        #                               self.output_c_dim], name='test_B')
-        # self.testB = self.generator(self.test_A, self.options, True, name="generatorA2B")
-        # self.testA = self.generator(self.test_B, self.options, True, name="generatorB2A")
+        self.test_A = tf.placeholder(tf.float32,
+                                     [None, self.image_size, self.image_size,
+                                      self.input_c_dim], name='test_A')
+        self.test_B = tf.placeholder(tf.float32,
+                                     [None, self.image_size, self.image_size,
+                                      self.output_c_dim], name='test_B')
+
+        self.testCaption = tf.placeholder(dtype=tf.int64, shape=[None, None], name='testCaption')
+        self.testCaptionNet = rnn_embed(self.testCaption, is_train=False, reuse=True)
+        load_and_assign_npz(sess=self.sess, name='datasets/net_rnn.npz', model=self.testCaptionNet)
+        self.testB = self.generator(self.test_A, self.testCaptionNet.outputs, self.options, True, name="generatorA2B")
+        self.testA = self.generator(self.test_B, self.testCaptionNet.outputs, self.options, True, name="generatorB2A")
 
         t_vars = tf.trainable_variables()
         self.d_vars = [var for var in t_vars if 'discriminator' in var.name]
@@ -167,10 +195,13 @@ class cyclegan(object):
 
             for idx in range(0, batch_idxs):
                 batch_files = list(zip(dataA[idx * self.batch_size:(idx + 1) * self.batch_size],
-                                       dataB[idx * self.batch_size:(idx + 1) * self.batch_size]))
+                                       dataB[idx * self.batch_size:(idx + 1) * self.batch_size],
+                                       [dataA[random.choice(range(0, batch_idxs))]],
+                                       [dataB[random.choice(range(0, batch_idxs))]]
+                                       ))
                 batch_images = [load_train_data(batch_file, args.load_size, args.fine_size) for batch_file in batch_files]
                 batch_images = np.array(batch_images).astype(np.float32)
-
+                
                 nameA = dataA[idx * self.batch_size:(idx + 1) * self.batch_size][0]
                 nameA = int(nameA.split("/")[-1].split(".")[0].split("_")[-1])
                 nameB = dataB[idx * self.batch_size:(idx + 1) * self.batch_size][0]
@@ -243,7 +274,7 @@ class cyclegan(object):
         dataB = glob('./datasets/{}/*.*'.format(self.dataset_dir + '/testB'))
         np.random.shuffle(dataA)
         np.random.shuffle(dataB)
-        batch_files = list(zip(dataA[:self.batch_size], dataB[:self.batch_size]))
+        batch_files = list(zip(dataA[:self.batch_size], dataB[:self.batch_size], dataA[:self.batch_size], dataB[:self.batch_size]))
         sample_images = [load_train_data(batch_file, is_testing=True) for batch_file in batch_files]
         sample_images = np.array(sample_images).astype(np.float32)
 
@@ -300,13 +331,20 @@ class cyclegan(object):
 
         for sample_file in sample_files:
             print('Processing image: ' + sample_file)
+
+            nameA = int(sample_file.split("/")[-1].split(".")[0].split("_")[-1])
+            captionA = [random.choice(self.caption_ids[nameA])]
+            caption_str = " ".join([self.vocab.id_to_word(id) for id in captionA[0]])
+            captionA = tl.prepro.pad_sequences(captionA, padding='post')
+
             sample_image = [load_test_data(sample_file, args.fine_size)]
             sample_image = np.array(sample_image).astype(np.float32)
             image_path = os.path.join(args.test_dir,
                                       '{0}_{1}'.format(args.which_direction, os.path.basename(sample_file)))
-            fake_img = self.sess.run(out_var, feed_dict={in_var: sample_image})
+            fake_img = self.sess.run(out_var, feed_dict={in_var: sample_image, self.testCaption: captionA})
             save_images(fake_img, [1, 1], image_path)
             index.write("<td>%s</td>" % os.path.basename(image_path))
+            index.write("<td>%s</td>" % caption_str)
             index.write("<td><img src='%s'></td>" % (sample_file if os.path.isabs(sample_file) else (
                 '..' + os.path.sep + sample_file)))
             index.write("<td><img src='%s'></td>" % (image_path if os.path.isabs(image_path) else (
