@@ -76,12 +76,8 @@ class cyclegan(object):
         self.DB_fake = self.discriminator(self.fake_B, self.captionANet.outputs, self.options, reuse=False, name="discriminatorB")
         self.DA_fake = self.discriminator(self.fake_A, self.captionBNet.outputs, self.options, reuse=False, name="discriminatorA")
 
-        self.g_loss_a2b = self.criterionGAN(self.DB_fake, tf.ones_like(self.DB_fake)) \
-            + self.L1_lambda * abs_criterion(self.real_A, self.fake_A_) \
-            + self.L1_lambda * abs_criterion(self.real_B, self.fake_B_)
-        self.g_loss_b2a = self.criterionGAN(self.DA_fake, tf.ones_like(self.DA_fake)) \
-            + self.L1_lambda * abs_criterion(self.real_A, self.fake_A_) \
-            + self.L1_lambda * abs_criterion(self.real_B, self.fake_B_)
+        self.g_loss_a2b = self.criterionGAN(self.DB_fake, tf.ones_like(self.DB_fake))
+        self.g_loss_b2a = self.criterionGAN(self.DA_fake, tf.ones_like(self.DA_fake))
         self.g_loss = self.criterionGAN(self.DA_fake, tf.ones_like(self.DA_fake)) \
             + self.criterionGAN(self.DB_fake, tf.ones_like(self.DB_fake)) \
             + self.L1_lambda * abs_criterion(self.real_A, self.fake_A_) \
@@ -110,15 +106,15 @@ class cyclegan(object):
         self.db_loss_fake = self.criterionGAN(self.DB_fake_sample, tf.zeros_like(self.DB_fake_sample))
         self.db_loss_wrong_caption = self.criterionGAN(self.DB_wrong_caption, tf.zeros_like(self.DB_wrong_caption))
         self.db_loss_wrong_image = self.criterionGAN(self.DB_wrong_image, tf.zeros_like(self.DB_wrong_image))
-        self.db_loss = self.db_loss_real + (self.db_loss_fake + self.db_loss_wrong_caption + self.db_loss_wrong_image) / 3
+        self.db_loss = self.db_loss_real + self.db_loss_fake + self.db_loss_wrong_caption + self.db_loss_wrong_image
         # self.db_loss = (self.db_loss_real + self.db_loss_fake) / 2
 
         self.da_loss_real = self.criterionGAN(self.DA_real, tf.ones_like(self.DA_real))
         self.da_loss_fake = self.criterionGAN(self.DA_fake_sample, tf.zeros_like(self.DA_fake_sample))
         self.da_loss_wrong_caption = self.criterionGAN(self.DA_wrong_caption, tf.zeros_like(self.DA_wrong_caption))
         self.da_loss_wrong_image = self.criterionGAN(self.DA_wrong_image, tf.zeros_like(self.DA_wrong_image))
-        self.da_loss = self.da_loss_real + (self.da_loss_fake + self.da_loss_wrong_caption + self.da_loss_wrong_image) / 3
-        # self.da_loss = (self.da_loss_real + self.da_loss_fake) / 2
+        # self.da_loss = self.da_loss_real + (self.da_loss_fake + self.da_loss_wrong_caption + self.da_loss_wrong_image) / 3
+        self.da_loss = self.da_loss_real + self.da_loss_fake
 
         self.d_loss = self.da_loss + self.db_loss
 

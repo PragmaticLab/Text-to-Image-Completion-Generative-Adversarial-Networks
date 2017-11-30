@@ -53,7 +53,7 @@ def discriminator(image, text, options, reuse=False, name="discriminator"):
         # h1 is (64 x 64 x self.df_dim*2)
         h2 = lrelu(instance_norm(conv2d(h1, options.df_dim*4, name='d_h2_conv'), 'd_bn2'))
         # h2 is (32x 32 x self.df_dim*4)
-        h3 = lrelu(instance_norm(conv2d(h2, options.df_dim*8, s=1, name='d_h3_conv'), 'd_bn3'))
+        h3 = lrelu(instance_norm(conv2d(h2, options.df_dim*4, s=1, name='d_h3_conv'), 'd_bn3'))
         # h3 is (32 x 32 x self.df_dim*8)
 
         w_init = tf.random_normal_initializer(stddev=0.02)
@@ -67,11 +67,14 @@ def discriminator(image, text, options, reuse=False, name="discriminator"):
         net_txt = ExpandDimsLayer(net_txt, 1, name='d_txt/expanddim2')
         net_txt = TileLayer(net_txt, [1, 32, 32, 1], name='d_txt/tile')
         net_h3_concat = ConcatLayer([net_h3, net_txt], concat_dim=3, name='d_h3_concat')
-        h4 = conv2d(net_h3_concat.outputs, 1, s=1, name='d_h3_pred')
-
-        return h4
-        # return h3
-
+        net_h3 = Conv2d(net_h3_concat, options.df_dim*2, (1, 1), (1, 1),
+                   padding='SAME', W_init=w_init, b_init=None, name='d_h3/conv2d_2')
+        net_h4 = FlattenLayer(net_h3, name='d_h4/flatten')
+        net_h4 = DenseLayer(net_h4, n_units=1, act=tf.identity,
+                W_init = w_init, name='d_h4/dense')
+        # return tf.nn.sigmoid(net_h4.outputs)
+        return net_h4.outputs
+        
 
 def generator_resnet(image, text, options, reuse=False, name="generator"):
 
