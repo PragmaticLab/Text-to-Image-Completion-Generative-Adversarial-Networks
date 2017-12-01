@@ -106,15 +106,16 @@ class cyclegan(object):
         self.db_loss_fake = self.criterionGAN(self.DB_fake_sample, tf.zeros_like(self.DB_fake_sample))
         self.db_loss_wrong_caption = self.criterionGAN(self.DB_wrong_caption, tf.zeros_like(self.DB_wrong_caption))
         self.db_loss_wrong_image = self.criterionGAN(self.DB_wrong_image, tf.zeros_like(self.DB_wrong_image))
-        self.db_loss = self.db_loss_real + self.db_loss_fake + self.db_loss_wrong_caption + self.db_loss_wrong_image
+        self.db_loss = self.db_loss_real + (self.db_loss_fake + self.db_loss_wrong_caption + self.db_loss_wrong_image) / 3
         # self.db_loss = (self.db_loss_real + self.db_loss_fake) / 2
 
         self.da_loss_real = self.criterionGAN(self.DA_real, tf.ones_like(self.DA_real))
         self.da_loss_fake = self.criterionGAN(self.DA_fake_sample, tf.zeros_like(self.DA_fake_sample))
         self.da_loss_wrong_caption = self.criterionGAN(self.DA_wrong_caption, tf.zeros_like(self.DA_wrong_caption))
         self.da_loss_wrong_image = self.criterionGAN(self.DA_wrong_image, tf.zeros_like(self.DA_wrong_image))
-        # self.da_loss = self.da_loss_real + (self.da_loss_fake + self.da_loss_wrong_caption + self.da_loss_wrong_image) / 3
-        self.da_loss = self.da_loss_real + self.da_loss_fake
+        self.da_loss = self.da_loss_real + (self.da_loss_fake + self.da_loss_wrong_caption + self.da_loss_wrong_image) / 3
+        self.da_lang_loss = self.da_loss_real + (self.da_loss_wrong_caption + self.da_loss_wrong_image) / 2
+        # self.da_loss = self.da_loss_real + self.da_loss_fake
 
         self.d_loss = self.da_loss + self.db_loss
 
@@ -165,6 +166,8 @@ class cyclegan(object):
         self.lr = tf.placeholder(tf.float32, None, name='learning_rate')
         self.d_optim = tf.train.AdamOptimizer(self.lr, beta1=args.beta1) \
             .minimize(self.d_loss, var_list=self.d_vars)
+        self.d_lang_optim = tf.train.AdamOptimizer(self.lr, beta1=args.beta1) \
+            .minimize(self.da_lang_loss, var_list=self.d_vars)
         self.g_optim = tf.train.AdamOptimizer(self.lr, beta1=args.beta1) \
             .minimize(self.g_loss, var_list=self.g_vars)
 
@@ -211,23 +214,41 @@ class cyclegan(object):
                 captionB = tl.prepro.pad_sequences(captionB, padding='post')
                 captionWrong = tl.prepro.pad_sequences(captionWrong, padding='post')
 
-                # Update G network and record fake outputs
-                fake_A, fake_B, _, summary_str = self.sess.run(
-                    [self.fake_A, self.fake_B, self.g_optim, self.g_sum],
-                    feed_dict={self.real_data: batch_images, self.lr: lr,
-                    self.captionA: captionA, self.captionB: captionB, self.captionWrong: captionWrong})
-                self.writer.add_summary(summary_str, counter)
-                [fake_A, fake_B] = self.pool([fake_A, fake_B])
+                if epoch < 50:
+                    # Update G network and record fake outputs
+                    fake_A, fake_B, summary_str = self.sess.run(
+                        [self.fake_A, self.fake_B, self.g_sum],
+                        feed_dict={self.real_data: batch_images, self.lr: lr,
+                        self.captionA: captionA, self.captionB: captionB, self.captionWrong: captionWrong})
+                    self.writer.add_summary(summary_str, counter)
+                    [fake_A, fake_B] = self.pool([fake_A, fake_B])
 
-                # Update D network
-                _, summary_str = self.sess.run(
-                    [self.d_optim, self.d_sum],
-                    feed_dict={self.real_data: batch_images,
-                               self.fake_A_sample: fake_A,
-                               self.fake_B_sample: fake_B,
-                               self.lr: lr, 
-                    self.captionA: captionA, self.captionB: captionB, self.captionWrong: captionWrong})
-                self.writer.add_summary(summary_str, counter)
+                    # Update D network
+                    _, summary_str = self.sess.run(
+                        [self.d_lang_optim, self.d_sum],
+                        feed_dict={self.real_data: batch_images,
+                                   self.fake_A_sample: fake_A,
+                                   self.fake_B_sample: fake_B,
+                                   self.lr: lr, 
+                        self.captionA: captionA, self.captionB: captionB, self.captionWrong: captionWrong})
+                else:
+                    # Update G network and record fake outputs
+                    fake_A, fake_B, _, summary_str = self.sess.run(
+                        [self.fake_A, self.fake_B, self.g_optim, self.g_sum],
+                        feed_dict={self.real_data: batch_images, self.lr: lr,
+                        self.captionA: captionA, self.captionB: captionB, self.captionWrong: captionWrong})
+                    self.writer.add_summary(summary_str, counter)
+                    [fake_A, fake_B] = self.pool([fake_A, fake_B])
+
+                    # Update D network
+                    _, summary_str = self.sess.run(
+                        [self.d_optim, self.d_sum],
+                        feed_dict={self.real_data: batch_images,
+                                   self.fake_A_sample: fake_A,
+                                   self.fake_B_sample: fake_B,
+                                   self.lr: lr, 
+                        self.captionA: captionA, self.captionB: captionB, self.captionWrong: captionWrong})
+                self.writer.add_summary(summary_str, counter)  
 
                 counter += 1
                 print(("Epoch: [%2d] [%4d/%4d] time: %4.4f" % (
