@@ -70,3 +70,7 @@ Here are some examples:
 8539686511      the <UNK> of the <UNK> of the <UNK>
 2190866953      the sun sets on the sea
 ```
+
+
+
+ CUDA_VISIBLE_DEIVCES=$gpu python cnn2lm.py trainval.tsv.tf myexperiment/vocab myexperiment/models/

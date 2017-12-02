@@ -6,12 +6,12 @@ import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import *
 
-X, _ = load_flowers(resize_pics=(28, 28))
+X, _ = load_flowers(resize_pics=(32, 32))
 
 # Training Params
-num_steps = 3000
-batch_size = 128
-lr_generator = 0.0001
+num_steps = 500000
+batch_size = 32
+lr_generator = 0.0003
 lr_discriminator = 0.0001
 
 # Network Params
@@ -22,57 +22,49 @@ noise_dim = 100 # Noise data points# Build Networks
 # Build Networks
 # Network Inputs
 noise_input = tf.placeholder(tf.float32, shape=[None, noise_dim])
-real_image_input = tf.placeholder(tf.float32, shape=[None, 28, 28, 3])
+real_image_input = tf.placeholder(tf.float32, shape=[None, 32, 32, 3])
 # A boolean to indicate batch normalization if it is training or inference time
 is_training = tf.placeholder(tf.bool)
 
-#LeakyReLU activation
 def leakyrelu(x, alpha=0.02):
-    return 0.5 * (1 + alpha) * x + 0.5 * (1 - alpha) * abs(x)
+    return tf.maximum(x, alpha*x)
 
-# Generator Network
-# Input: Noise, Output: Image
-# Note that batch normalization has different behavior at training and inference time,
-# we then use a placeholder to indicates the layer if we are training or not.
+w_init = tf.random_normal_initializer(stddev=0.02)
+gamma_init = tf.random_normal_initializer(1., 0.02)
+
 def generator(x, reuse=False):
     with tf.variable_scope('Generator', reuse=reuse):
-        # TensorFlow Layers automatically create variables and calculate their
-        # shape, based on the input.
-        x = tf.layers.dense(x, units=7 * 7 * 128)
-        x = tf.layers.batch_normalization(x, training=is_training)
+        x = tf.layers.dense(x, units=4*4*64, kernel_initializer=w_init)
+        x = tf.layers.batch_normalization(x, training=is_training, gamma_initializer=gamma_init)
         x = tf.nn.relu(x)
-        # Reshape to a 4-D array of images: (batch, height, width, channels)
-        # New shape: (batch, 7, 7, 128)
-        x = tf.reshape(x, shape=[-1, 7, 7, 128])
-        # Deconvolution, image shape: (batch, 14, 14, 64)
-        x = tf.layers.conv2d_transpose(x, 64, 3, strides=2, padding='same')
-        x = tf.layers.batch_normalization(x, training=is_training)
+        x = tf.reshape(x, shape=[-1, 4, 4, 64])
+        x = tf.layers.conv2d_transpose(x, 32, 2, strides=2, padding='same', kernel_initializer=w_init)
+        x = tf.layers.batch_normalization(x, training=is_training, gamma_initializer=gamma_init)
         x = tf.nn.relu(x)
-        # Deconvolution, image shape: (batch, 28, 28, 1)
-        x = tf.layers.conv2d_transpose(x, 3, 3, strides=2, padding='same')
-        # Apply tanh for better stability - clip values to [-1, 1].
+        x = tf.layers.conv2d_transpose(x, 16, 2, strides=2, padding='same', kernel_initializer=w_init)
+        x = tf.layers.batch_normalization(x, training=is_training, gamma_initializer=gamma_init)
+        x = tf.nn.relu(x)
+        x = tf.layers.conv2d_transpose(x, 3, 2, strides=2, padding='same', kernel_initializer=w_init)
         x = tf.nn.tanh(x)
         return x
 
 
-# Discriminator Network
-# Input: Image, Output: Prediction Real/Fake Image
 def discriminator(x, reuse=False):
     with tf.variable_scope('Discriminator', reuse=reuse):
-        # Typical convolutional neural network to classify images.
-        x = tf.layers.conv2d(x, 64, 3, strides=2, padding='same')
-        x = tf.layers.batch_normalization(x, training=is_training)
+        x = tf.layers.conv2d(x, 16, 2, strides=2, padding='same', kernel_initializer=w_init)
+        x = tf.layers.batch_normalization(x, training=is_training, gamma_initializer=gamma_init)
         x = leakyrelu(x)
-        x = tf.layers.conv2d(x, 128, 3, strides=2, padding='same')
-        x = tf.layers.batch_normalization(x, training=is_training)
+        x = tf.layers.conv2d(x, 32, 2, strides=2, padding='same', kernel_initializer=w_init)
+        x = tf.layers.batch_normalization(x, training=is_training, gamma_initializer=gamma_init)
         x = leakyrelu(x)
-        # Flatten
-        x = tf.reshape(x, shape=[-1, 7*7*128])
-        x = tf.layers.dense(x, 1024)
-        x = tf.layers.batch_normalization(x, training=is_training)
+        x = tf.layers.conv2d(x, 64, 2, strides=2, padding='same', kernel_initializer=w_init)
+        x = tf.layers.batch_normalization(x, training=is_training, gamma_initializer=gamma_init)
         x = leakyrelu(x)
-        # Output 2 classes: Real and Fake images
-        x = tf.layers.dense(x, 2)
+        x = tf.reshape(x, shape=[-1, 4*4*64])
+        x = tf.layers.dense(x, 1024, kernel_initializer=w_init)
+        x = tf.layers.batch_normalization(x, training=is_training, gamma_initializer=gamma_init)
+        x = leakyrelu(x)
+        x = tf.layers.dense(x, 2, kernel_initializer=w_init)
     return x
 
 # Build Generator Network
@@ -98,8 +90,8 @@ gen_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
     logits=stacked_gan, labels=tf.ones([batch_size], dtype=tf.int32)))
 
 # Build Optimizers
-optimizer_gen = tf.train.AdamOptimizer(learning_rate=lr_generator, beta1=0.5, beta2=0.999)
-optimizer_disc = tf.train.AdamOptimizer(learning_rate=lr_discriminator, beta1=0.5, beta2=0.999)
+optimizer_gen = tf.train.AdamOptimizer(learning_rate=lr_generator)
+optimizer_disc = tf.train.AdamOptimizer(learning_rate=lr_discriminator)
 
 # Training Variables for each optimizer
 # By default in TensorFlow, all variables are updated by each optimizer, so we
@@ -131,27 +123,21 @@ sess = tf.Session()
 sess.run(init)
 
 
-# Training
 batches = batch_iter(X, batch_size=batch_size, total_batches=num_steps)
+dl = 999.0
 for i, batch in enumerate(batches):
     if batch.shape[0] != batch_size: continue 
 
-    # Discriminator Training
-    # Generate noise to feed to the generator
-    z = np.random.uniform(-1., 1., size=[batch_size, noise_dim])
-    _, dl = sess.run([train_disc, disc_loss], feed_dict={real_image_input: batch, noise_input: z, is_training:True})
-    
-    # Generator Training
-    # Generate noise to feed to the generator
-    for k in range(10):
-        z = np.random.uniform(-1., 1., size=[batch_size, noise_dim])
-        _, gl = sess.run([train_gen, gen_loss], feed_dict={noise_input: z, is_training:True})
-    
-    if i % 100 == 0 or i == 1:
+    z = np.random.normal(loc=0.0, scale=1.0, size=[batch_size, noise_dim]).astype(np.float32)
+
+    if dl > 0.2:
+        _, dl, _, gl = sess.run([train_disc, disc_loss, train_gen, gen_loss], 
+            feed_dict={real_image_input: batch, noise_input: z, is_training:True})
+    dl, _, gl = sess.run([disc_loss, train_gen, gen_loss], 
+        feed_dict={real_image_input: batch, noise_input: z, is_training:True})
+
+    if i % 100 == 0:
+        g = sess.run(gen_sample, feed_dict={noise_input: z, is_training:False})
+        plt.imshow(g[0])
+        plt.savefig('experiment_1.1_dcgan/samples/sample_%d.png' % i)
         print('Step %i: Generator Loss: %f, Discriminator Loss: %f' % (i, gl, dl))
-
-
-g = sess.run(gen_sample, feed_dict={noise_input: z, is_training:False})
-for i in range(5):
-    plt.imshow(g[0])
-    plt.show()

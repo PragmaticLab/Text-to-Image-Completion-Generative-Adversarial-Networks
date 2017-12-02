@@ -8,6 +8,7 @@ def load_mnist():
 
 def load_flowers(resize_pics=(64, 64)):
     X, Y = oxflower17.load_data(dirname="./data/17flowers/", resize_pics=resize_pics, shuffle=True, one_hot=False)
+    # X = X[Y < 10]
     return X, Y
 
 def load_cifar10():

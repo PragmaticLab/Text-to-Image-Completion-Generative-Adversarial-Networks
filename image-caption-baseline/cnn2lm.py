@@ -29,6 +29,12 @@ def _lm_sampler(images, num_symbols, batch_size, paths_):
 
   return sample
 
+def simple_softmax(x):
+  ps = np.exp(x)
+  ps /= (np.sum(ps))
+  ps -= 0.0000001
+  return ps
+
 def _cnn_sampler(images, num_symbols, batch_size, paths_):
   cnn = encode_image(images)
 
@@ -52,7 +58,10 @@ def _cnn_sampler(images, num_symbols, batch_size, paths_):
           feed_dict={
             prev_state:prev,
             prev_symbol:text})
-      text = np.argmax(logits, 1)
+      # print(logits.shape)
+      # text = np.argmax(logits, 1) # maybe use np.random.multinomial(1, [0.01, 0.99])
+      # print(np.sum(simple_softmax(logits[0])))
+      text = [np.argmax(np.random.multinomial(1, simple_softmax(logits[i]))) for i in range(batch_size)]
       text = np.expand_dims(text, 1)
       texts.append(text)
 
