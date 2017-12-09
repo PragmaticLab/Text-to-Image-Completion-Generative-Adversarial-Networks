@@ -128,6 +128,7 @@ def main():
   with open(tsv_path) as reader:
     for line in reader:
       fields = line.strip().split('\t')
+      # print(fields)
       name = osp.basename(fields[1])
 
       fields[1] = osp.join(image_dir, fields[1])

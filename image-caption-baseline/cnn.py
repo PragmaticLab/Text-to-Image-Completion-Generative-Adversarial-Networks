@@ -15,7 +15,7 @@ from lm import RNN_SIZE
 from coco_inputs import inputs
 
 # images are in the range [-1, 1)
-def encode_image(images, input_name = 'Mul'):
+def encode_image(images, input_name = 'Mul', reuse=False):
   PB_PATH = './data/models/graph.pb'
 
   graph_def = tf.GraphDef()
@@ -36,7 +36,7 @@ def encode_image(images, input_name = 'Mul'):
     output_node = graph.get_tensor_by_name(scope+output_name+':0')
 
   output_node = tf.reshape(output_node, [-1, cnn_dim])
-  with tf.variable_scope('cnn2rnn'):
+  with tf.variable_scope('cnn2rnn', reuse=reuse):
     w = tf.get_variable("proj_w", [cnn_dim, RNN_SIZE])
     b = tf.get_variable("proj_b", [RNN_SIZE])
     res = tf.matmul(output_node, w) + b
