@@ -12,9 +12,6 @@ from utils import *
 from model import *
 import model
 
-from sklearn.mixture import GaussianMixture
-
-
 print("Loading data from pickle ...")
 import pickle
 with open("_vocab.pickle", 'rb') as f:
@@ -64,69 +61,68 @@ embedding = tf.placeholder(dtype='float32', shape=[batch_size, 128])
 generator, _ = generator_txt2img(t_z,
                 embedding,
                 is_train=False, reuse=True, batch_size=batch_size)
-
+discriminator, disc_fake_image_logits = discriminator_txt2img(
+                generator.outputs, embedding, is_train=True, reuse=False)
 
 ######### new stuff here
 sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
-
-# t_caption1 = tf.placeholder(dtype=tf.int64, shape=[batch_size, None], name='caption1')
-# t_caption2 = tf.placeholder(dtype=tf.int64, shape=[batch_size, None], name='caption2')
-
-# caption1 = rnn_embed(t_caption1, is_train=False, reuse=True).outputs
-# caption2 = rnn_embed(t_caption2, is_train=False, reuse=True).outputs
-# merged_caption = (caption1 + caption2) / 2
-# # merged_caption = caption1 + caption2 * 0
-
-# merged_image, _ = generator_txt2img(t_z, merged_caption,
-#                 is_train=False, reuse=True, batch_size=batch_size)
 
 print("Loading weights from trained NN")
 load_and_assign_npz(sess=sess, name=net_rnn_name, model=net_rnn)
 load_and_assign_npz(sess=sess, name=net_cnn_name, model=net_cnn)
 load_and_assign_npz(sess=sess, name=net_g_name, model=net_g)
+load_and_assign_npz(sess=sess, name=net_d_name, model=discriminator)
+
 
 sample_size = batch_size
-sample_seed = np.random.normal(loc=0.0, scale=1.0, size=(sample_size, z_dim)).astype(np.float32)
 
-captions = tl.prepro.pad_sequences(captions_ids_train, padding='post')
+with open("gmm_embedding.pickle", 'rb') as f:
+    gmm = pickle.load(f)
 
-list_of_embeddings = []
-for i in range(captions.shape[0] / 64):
-    caption_batch = captions[i*64:(i+1)*64]
-    caption_embeddings = sess.run(v, feed_dict={t_real_caption: caption_batch})
-    list_of_embeddings.append(caption_embeddings)
-
-all_embeddings = np.concatenate(list_of_embeddings, axis=0) 
-
-total_components = 120
-gmm = GaussianMixture(n_components=total_components, covariance_type='diag', verbose=5, max_iter=500)
-gmm.fit(all_embeddings)
-
-
-test_captions = tl.prepro.pad_sequences(captions_ids_test, padding='post')
-test_list_of_embeddings = []
-for i in range(test_captions.shape[0] / 64):
-    caption_batch = test_captions[i*64:(i+1)*64]
-    caption_embeddings = sess.run(v, feed_dict={t_real_caption: caption_batch})
-    test_list_of_embeddings.append(caption_embeddings)
-
-test_all_embeddings = np.concatenate(test_list_of_embeddings, axis=0) 
-print gmm.score(all_embeddings)
-print gmm.score(test_all_embeddings)
-print gmm.score(gmm.sample(10000)[0])
-print gmm.score(gmm.means_) # this yields a high score!!! =P
-'''
-Im trying to see if the gmm really captures it =P 
-'''
-
-with open('gmm_embedding.pickle', 'wb') as handle:
-    pickle.dump(gmm, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-x, y = gmm.sample(64000)
-for i in range(total_components): # 64 images for each cluster in GMM 
-    x_i = x[y==i]
-    x_i = x_i[:64]
-    img_gen = sess.run(generator.outputs, feed_dict={
-                                            embedding : x_i,
+img_gens = []
+img_scores = []
+embeddings = []
+for i in range(100):
+    sample_seed = np.random.normal(loc=0.0, scale=1.0, size=(sample_size, z_dim)).astype(np.float32)
+    b_embeddings,_ = gmm.sample(64)
+    img_gen, img_score = sess.run([generator.outputs, discriminator.outputs], feed_dict={
+                                            embedding : b_embeddings,
                                             t_z : sample_seed})
-    save_images(img_gen, [ni, ni], 'samples/gmm_generated/%d.png' % i)
+    img_gens.append(img_gen)
+    img_scores.append(img_score)
+    embeddings.append(b_embeddings)
+
+img_gens = np.concatenate(img_gens, axis=0)
+img_scores = np.concatenate(img_scores, axis=0).reshape(-1) 
+embeddings = np.concatenate(embeddings, axis=0)
+
+best_k = img_scores.argsort()[-64:]
+worst_k = img_scores.argsort()[:64]
+
+best_embedding_scores = gmm.score(embeddings[best_k])
+worst_embedding_scores = gmm.score(embeddings[worst_k])
+print best_embedding_scores, worst_embedding_scores
+''' why are the best_embedding scores lower than the worst? '''
+
+save_images(img_gens[best_k], [ni, ni], 'samples/best_worst_comparison/best.png')
+save_images(img_gens[worst_k], [ni, ni], 'samples/best_worst_comparison/worst.png')
+
+'''
+gen embeddings -> img 
+img + embeddings -> score! 
+
+impossible embeddings! ... 
+
+this finds poor <img, embedding> combos
+this doesn't get what I want o.0...
+
+so what I really want is bad images??? 
+
+text -> img -> text -> img -> text
+denoising autoencoder?
+
+what if I can use the test images? test images should not have been seen! 
+test img -> becoming -> train img
+
+k, basically, the conclusion is that the D score is a bad metric!!!
+'''

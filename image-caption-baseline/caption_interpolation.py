@@ -5,7 +5,6 @@ Code description
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-__author__ = "Raingo Lee (raingomm@gmail.com)"
 
 import sys
 import os.path as osp
